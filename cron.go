@@ -2,13 +2,8 @@ package gocron
 
 import (
 	_ "embed"
+	"encoding/base64"
 	"fmt"
-	"html/template"
-	"net/http"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/robfig/cron/v3"
 	gcore "github.com/snail007/gmc/core"
 	gctx "github.com/snail007/gmc/module/ctx"
@@ -18,6 +13,11 @@ import (
 	gfile "github.com/snail007/gmc/util/file"
 	gmap "github.com/snail007/gmc/util/map"
 	gonce "github.com/snail007/gmc/util/sync/once"
+	"html/template"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 var (
@@ -79,6 +79,7 @@ type JobItem struct {
 	NextAt       int64  `json:"next_at"`
 	TriggerAt    int64  `json:"trigger_at"`
 	RunningCount int64  `json:"running_count"`
+	Mutex        bool   `json:"mutex"`
 }
 
 type CrontabManager struct {
@@ -195,6 +196,7 @@ func (s *CrontabManager) job2item(job *Job) *JobItem {
 		NextAt:       entry.Next.Unix(),
 		TriggerAt:    triggerAt,
 		RunningCount: int64(atomic.LoadInt32(job.runningCount)),
+		Mutex:        job.Mutex,
 	}
 }
 
@@ -263,6 +265,10 @@ func (s *CrontabManager) handleJobList(ctx gcore.Ctx) (_ interface{}, err error)
 				}
 				return time.Unix(gcast.ToInt64(t), 0).Format(args[0].(string)), nil
 			},
+			"tojs": func(str string)string {
+				s,_:=base64.StdEncoding.DecodeString(str)
+				return string(s)
+			},
 		})
 		_, err = s.tpl.Parse(indexTpl)
 	})
@@ -271,7 +277,7 @@ func (s *CrontabManager) handleJobList(ctx gcore.Ctx) (_ interface{}, err error)
 	}
 	tplData := map[string]interface{}{
 		"rows":   s.JobList(),
-		"jquery": jquery,
+		"jquery": base64.StdEncoding.EncodeToString([]byte(jquery)),
 	}
 	err = s.tpl.Execute(ctx.Response(), tplData)
 	return

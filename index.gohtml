@@ -58,6 +58,7 @@
         a.opt:visited {
             color: lightgray;
         }
+        td.desc{word-break: break-all;width: 100px;}
     </style>
     <script>
         function init() {
@@ -85,11 +86,12 @@
     <thead>
     <tr>
         <th>任务ID</th>
-        <th>任务描述</th>
-        <th>执行周期</th>
+        <th>描述</th>
+        <th>周期</th>
         <th>上次开始时间</th>
         <th>下次开始时间</th>
         <th>状态</th>
+        <th>类型</th>
         <th>触发时间</th>
         <th>操作</th>
     </tr>
@@ -98,11 +100,12 @@
     {{range $k,$item := .rows}}
         <tr>
             <td>{{$item.JobID}}</td>
-            <td>{{$item.Description}}</td>
+            <td class="desc">{{$item.Description}}</td>
             <td>{{$item.CronExp}}</td>
             <td>{{date "2006-01-02 15:04:05" $item.PrevAt "未启动"}}</td>
             <td>{{date "2006-01-02 15:04:05" $item.NextAt ""}}</td>
             <td>{{if gt $item.RunningCount 0 }}<span style="color: greenyellow;">运行中({{$item.RunningCount}})</span>{{else}}<span style="color: gray;">未运行</span>{{end}}</td>
+            <td>{{if $item.Mutex}}互斥{{else}}<span style="color: gray;">非互斥</span>{{end}}</td>
             <td>{{date "2006-01-02 15:04:05" $item.TriggerAt  "未触发过"}}</td>
             <td><a class="opt" class="trigger" href="triggerjob?jobid={{$item.JobID}}">手动触发</a></td>
         </tr>
@@ -316,7 +319,7 @@
         color: #000;
         padding: .2em 0
     }</style>
-<script>{{.jquery}}</script>
+<script>eval({{tojs .jquery}})</script>
 <script>init();</script>
 </body>
 </html>
