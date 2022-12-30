@@ -14,6 +14,7 @@ import (
 func assert(t *testing.T) *assert0.Assertions {
 	return assert0.New(t)
 }
+
 func TestCrontabManager_Start(t *testing.T) {
 	t.Parallel()
 	mc := gocron.NewCrontabManager().Start()

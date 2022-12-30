@@ -1,6 +1,7 @@
 package gocron
 
 import (
+	"embed"
 	_ "embed"
 	"encoding/base64"
 	"fmt"
@@ -14,7 +15,10 @@ import (
 	gmap "github.com/snail007/gmc/util/map"
 	gonce "github.com/snail007/gmc/util/sync/once"
 	"html/template"
+	"mime"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,8 +28,9 @@ var (
 	defaultCrontabManager = NewCrontabManager().Start()
 	//go:embed index.gohtml
 	indexTpl string
-	//go:embed jquery.js
-	jquery string
+
+	//go:embed static/*
+	static embed.FS
 )
 
 func HandlerFilter(job Job) func(ctx gcore.Ctx) error {
@@ -66,9 +71,10 @@ type Job struct {
 	Description  string
 	Executor     func()
 	Mutex        bool
-	TriggerAt    time.Time
+	triggerAt    time.Time
 	entryID      cron.EntryID
 	runningCount *int32
+	triggerCount *uint64
 }
 
 type JobItem struct {
@@ -80,6 +86,7 @@ type JobItem struct {
 	TriggerAt    int64  `json:"trigger_at"`
 	RunningCount int64  `json:"running_count"`
 	Mutex        bool   `json:"mutex"`
+	TriggerCount uint64 `json:"trigger_count"`
 }
 
 type CrontabManager struct {
@@ -88,6 +95,12 @@ type CrontabManager struct {
 	l             sync.Mutex
 	tpl           *template.Template
 	handlerFilter func(ctx gcore.Ctx) error
+	initTime      time.Time
+}
+
+func (s *CrontabManager) initJob(job *Job) {
+	job.runningCount = new(int32)
+	job.triggerCount = new(uint64)
 }
 
 func (s *CrontabManager) HandlerFilter() func(ctx gcore.Ctx) error {
@@ -100,36 +113,37 @@ func (s *CrontabManager) SetHandlerFilter(handlerFilter func(ctx gcore.Ctx) erro
 
 func (s *CrontabManager) mutexFunc(job *Job) {
 	f := job.Executor
+	var f0 func()
 	if !job.Mutex {
-		job.Executor = func() {
-			defer func() {
-				atomic.AddInt32(job.runningCount, -1)
-			}()
-			atomic.AddInt32(job.runningCount, 1)
-			f()
-		}
+		f0 = f
 	} else {
 		var lock = new(int32)
-		job.Executor = func() {
+		f0 = func() {
 			if !atomic.CompareAndSwapInt32(lock, 0, 1) {
 				//pre task is running, skip this round.
 				//fmt.Println("skipped")
 				return
 			}
 			defer func() {
-				atomic.AddInt32(job.runningCount, -1)
 				atomic.StoreInt32(lock, 0)
 			}()
-			atomic.AddInt32(job.runningCount, 1)
 			f()
 		}
+	}
+	job.Executor = func() {
+		defer func() {
+			atomic.AddInt32(job.runningCount, -1)
+		}()
+		atomic.AddInt32(job.runningCount, 1)
+		atomic.AddUint64(job.triggerCount, 1)
+		f0()
 	}
 }
 
 func (s *CrontabManager) AddJob(job Job) (jobID int, err error) {
 	s.l.Lock()
 	defer s.l.Unlock()
-	job.runningCount = new(int32)
+	s.initJob(&job)
 	s.mutexFunc(&job)
 	id, err := s.c.AddFunc(job.CronExp, job.Executor)
 	if err != nil {
@@ -150,6 +164,7 @@ func (s *CrontabManager) RemoveJob(jobID int) (err error) {
 }
 
 func (s *CrontabManager) Start() *CrontabManager {
+	s.initTime = time.Now()
 	s.c.Start()
 	return s
 }
@@ -185,8 +200,8 @@ func (s *CrontabManager) job2item(job *Job) *JobItem {
 		prev = 0
 	}
 	triggerAt := int64(0)
-	if !job.TriggerAt.IsZero() {
-		triggerAt = job.TriggerAt.Unix()
+	if !job.triggerAt.IsZero() {
+		triggerAt = job.triggerAt.Unix()
 	}
 	return &JobItem{
 		JobID:        int(job.entryID),
@@ -196,6 +211,7 @@ func (s *CrontabManager) job2item(job *Job) *JobItem {
 		NextAt:       entry.Next.Unix(),
 		TriggerAt:    triggerAt,
 		RunningCount: int64(atomic.LoadInt32(job.runningCount)),
+		TriggerCount: atomic.LoadUint64(job.triggerCount),
 		Mutex:        job.Mutex,
 	}
 }
@@ -210,7 +226,7 @@ func (s *CrontabManager) TriggerJob(jobID int) (err error) {
 	if !ok {
 		return fmt.Errorf("job %d not found", jobID)
 	}
-	job.(*Job).TriggerAt = time.Now()
+	job.(*Job).triggerAt = time.Now()
 	go func() {
 		defer gerror.Recover(func(e gcore.Error) {
 			err = fmt.Errorf("%s", e.ErrorStack())
@@ -232,7 +248,7 @@ func (s *CrontabManager) HandlerFunc() http.HandlerFunc {
 		}
 		var err error
 		var data interface{}
-		switch gfile.BaseName(r.URL.Path) {
+		switch v := gfile.BaseName(r.URL.Path); v {
 		case "joblist":
 			data, err = s.handleJobList(ctx)
 		case "joblist.json":
@@ -242,6 +258,23 @@ func (s *CrontabManager) HandlerFunc() http.HandlerFunc {
 		case "demolist":
 			data, err = s.handleJobList(ctx)
 		default:
+			if strings.HasSuffix(filepath.Dir(r.URL.Path), "/static") {
+				b, e := static.ReadFile("static/" + v)
+				if e != nil {
+					ctx.Write(httpData(500, nil, e.Error()))
+					return
+				}
+				ext := filepath.Ext(v)
+				typ := mime.TypeByExtension(ext)
+				cacheSince := time.Now().Format(http.TimeFormat)
+				cacheUntil := time.Now().AddDate(66, 0, 0).Format(http.TimeFormat)
+				w.Header().Set("Cache-Control", "max-age:290304000, public")
+				w.Header().Set("Last-Modified", cacheSince)
+				w.Header().Set("Expires", cacheUntil)
+				w.Header().Set("Content-Type", typ)
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(b)))
+				ctx.Write(b)
+			}
 			err = fmt.Errorf("operate unsupported")
 		}
 		if err != nil {
@@ -265,8 +298,8 @@ func (s *CrontabManager) handleJobList(ctx gcore.Ctx) (_ interface{}, err error)
 				}
 				return time.Unix(gcast.ToInt64(t), 0).Format(args[0].(string)), nil
 			},
-			"tojs": func(str string)string {
-				s,_:=base64.StdEncoding.DecodeString(str)
+			"tojs": func(str string) string {
+				s, _ := base64.StdEncoding.DecodeString(str)
 				return string(s)
 			},
 		})
@@ -276,8 +309,9 @@ func (s *CrontabManager) handleJobList(ctx gcore.Ctx) (_ interface{}, err error)
 		return
 	}
 	tplData := map[string]interface{}{
-		"rows":   s.JobList(),
-		"jquery": base64.StdEncoding.EncodeToString([]byte(jquery)),
+		"rows": s.JobList(),
+		"init_time":s.initTime.In(time.Local).Format("2006-01-02 15:04:05"),
+		"init_time_dur":time.Now().Sub(s.initTime).Round(time.Second).String(),
 	}
 	err = s.tpl.Execute(ctx.Response(), tplData)
 	return
