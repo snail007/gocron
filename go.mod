@@ -6,7 +6,7 @@ require (
 	github.com/go-sql-driver/mysql v1.6.0 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/snail007/gmc v0.0.0-20220909043708-d75d66a1aaac
+	github.com/snail007/gmc v0.0.0-20230103025602-9a387736ff1d
 	github.com/spf13/viper v1.9.0 // indirect
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/image v0.0.0-20211028202545-6944b10bf410 // indirect
