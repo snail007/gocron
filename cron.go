@@ -160,7 +160,7 @@ func (s *CrontabManager) metricsEnd(runCtx *gmap.Map, job *Job) {
 			Skipped: ok,
 		})
 	if job.MaxMetricsDataLen <= 0 {
-		job.MaxMetricsDataLen=maxMetricsDataLen
+		job.MaxMetricsDataLen = maxMetricsDataLen
 	}
 	if job.metricsRunData.Len() > job.MaxMetricsDataLen {
 		job.metricsRunData.Shift()
@@ -415,14 +415,20 @@ func (s *CrontabManager) handleHistory(ctx gcore.Ctx) (b interface{}, err error)
 	runData := job.RawJob.MetricsRunData()
 	historyMap := map[int64]map[string]interface{}{}
 	sortBy := []int64{}
+
 	for _, v := range runData {
 		key := v.StartAt.UnixNano()
 		sortBy = append(sortBy, key)
+		dur_str := "0ms"
+		dur_ms := v.EndAt.Sub(v.StartAt).Milliseconds()
+		if dur_ms > 0 {
+			dur_str = gcast.ToString(v.EndAt.Sub(v.StartAt).Round(time.Millisecond))
+		}
 		historyMap[key] = map[string]interface{}{
 			"start_at": v.StartAt.UnixMilli(),
-			"dur_ms":   v.EndAt.Sub(v.StartAt).Milliseconds(),
+			"dur_ms":   dur_ms,
 			"skipped":  v.Skipped,
-			"dur_str":  gcast.ToString(v.EndAt.Sub(v.StartAt).Round(time.Millisecond)),
+			"dur_str":  dur_str,
 		}
 	}
 	sort.Slice(sortBy, func(i, j int) bool {
