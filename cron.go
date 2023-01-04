@@ -455,7 +455,7 @@ func (s *CrontabManager) handleJobList(ctx gcore.Ctx) (b interface{}, err error)
 	tplData := map[string]interface{}{
 		"rows":          s.JobList(),
 		"init_time":     s.initTime.In(time.Local).Format("2006-01-02 15:04:05"),
-		"init_time_dur": gcast.ToString(time.Now().Sub(s.initTime)),
+		"init_time_dur": gcast.ToString(time.Now().Sub(s.initTime).Round(time.Second)),
 	}
 	d, err := s.tpl.Execute("index", tplData)
 	if err != nil {
