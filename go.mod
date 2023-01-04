@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/snail007/gmc v0.0.0-20230104040909-7a4813c63d27
+	github.com/snail007/gmc v0.0.0-20230104085554-790c9b13ff5b
 	github.com/stretchr/testify v1.8.1
 )
 
