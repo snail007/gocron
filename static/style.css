@@ -283,3 +283,6 @@ td.desc, th.desc {
 caption small{
     font-size: 0.2em;
 }
+tr:hover {
+    background-color: #202020;
+}
