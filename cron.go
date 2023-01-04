@@ -422,6 +422,7 @@ func (s *CrontabManager) handleHistory(ctx gcore.Ctx) (b interface{}, err error)
 			"start_at": v.StartAt.UnixMilli(),
 			"dur_ms":   v.EndAt.Sub(v.StartAt).Milliseconds(),
 			"skipped":  v.Skipped,
+			"dur_str":  gcast.ToString(v.EndAt.Sub(v.StartAt).Round(time.Millisecond)),
 		}
 	}
 	sort.Slice(sortBy, func(i, j int) bool {

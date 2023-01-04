@@ -105,4 +105,8 @@ Executor: func () {
 
 # 管理界面截图，先睹为快
 
-![](./demo.png)
+## 管理列表
+![](docs/images/demo.png)
+
+## 执行历史
+![](docs/images/demo1.png)

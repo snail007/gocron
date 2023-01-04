@@ -5,7 +5,7 @@
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <style>
-        h3 small{
+        h3 small {
             font-size: 0.5em;
             color: darkgrey;
             display: block;
@@ -23,64 +23,65 @@
 <script src="static/echarts.min.js"></script>
 <script>
     var data ={{.data}};
-    var job={{.jobJson}}
-    $(function () {
-        var xData = [];
-        var dotData = [];
-        var yData = [];
-        for (var v of data) {
-            xData.push(v["start_at"]);
-            yData.push(v["dur_ms"]);
-            dotData.push([v["start_at"], v["dur_ms"]]);
-        }
-        var option = {
-            tooltip: {
-                trigger: 'axis',
-                axisPointer: {
-                    type: 'cross',
-                },
-                formatter: function (params) {
-                    let startAt = new Date(params[0].value[0]);
-                    let dur = params[0].value[1];
-                    let skipped = data[params[0].dataIndex]["skipped"]
-                    console.log(skipped, params);
-                    var html = "<div>" + params[0].marker + "触发时间：" + startAt.toLocaleString() + "</div>"
-                    html += "<div>" + params[0].marker + "执行耗时：" + (skipped ? "互斥忽略" : (dur + "ms")) + "</div>"
-                    return html;
-                }
-            },
-            xAxis: {
-                axisTick: {
-                    alignWithLabel: true
-                },
-                name: '触发时间',
-                type: "time",
-                data: xData,
-                splitLine: {
-                    show: false
-                },
-                axisLabel: {
-                    formatter: function (value, index) {
-                        var date = new Date(value)
-                        return date.toLocaleTimeString()
+    var job ={{.jobJson}}
+        $(function () {
+            var xData = [];
+            var dotData = [];
+            var yData = [];
+            for (var v of data) {
+                xData.push(v["start_at"]);
+                yData.push(v["dur_ms"]);
+                dotData.push([v["start_at"], v["dur_ms"]]);
+            }
+            var option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross',
+                    },
+                    formatter: function (params) {
+                        let startAt = new Date(params[0].value[0]);
+                        //let dur = params[0].value[1];
+                        let item = data[params[0].dataIndex];
+                        let skipped = item["skipped"]
+                        console.log(skipped, params);
+                        var html = "<div>" + params[0].marker + "触发时间：" + startAt.toLocaleString() + "</div>"
+                        html += "<div>" + params[0].marker + "执行耗时：" + (skipped ? "互斥忽略" : item["dur_str"]) + "</div>"
+                        return html;
                     }
-                }
-            },
-            yAxis: {
-                name: '执行耗时',
-                type: 'value',
-                data: yData,
-            },
-            series: [
-                {
-                    data: dotData,
-                    type: 'line',
-                }
-            ]
-        };
-        var myChart = echarts.init($(".main")[0]);
-        myChart.setOption(option);
-    });
+                },
+                xAxis: {
+                    axisTick: {
+                        alignWithLabel: true
+                    },
+                    name: '触发时间',
+                    type: "time",
+                    data: xData,
+                    splitLine: {
+                        show: false
+                    },
+                    axisLabel: {
+                        formatter: function (value, index) {
+                            var date = new Date(value)
+                            return date.toLocaleTimeString()
+                        }
+                    }
+                },
+                yAxis: {
+                    name: '执行耗时(ms)',
+                    type: 'value',
+                    data: yData,
+                },
+                series: [
+                    {
+                        data: dotData,
+                        type: 'line',
+                    }
+                ]
+            };
+            var myChart = echarts.init($(".main")[0]);
+            myChart.setOption(option);
+        });
 
 </script>
 </body>
