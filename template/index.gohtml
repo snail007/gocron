@@ -40,7 +40,10 @@
             <td>{{if gt $item.RunningCount 0 }}<span style="color: greenyellow;">运行中({{$item.RunningCount}})</span>{{else}}<span style="color: gray;">未运行</span>{{end}}</td>
             <td>{{if $item.Mutex}}互斥{{else}}<span style="color: gray;">并行</span>{{end}}</td>
             <td>{{date "2006-01-02 15:04:05" $item.TriggerAt  "未触发过"}}</td>
-            <td><a class="opt" class="trigger" href="triggerjob?jobid={{$item.JobID}}">手动触发</a></td>
+            <td>
+                <a class="opt trigger" href="triggerjob?jobid={{$item.JobID}}">手动触发</a>&nbsp;&nbsp;
+                <a class="opt" href="history?jobid={{$item.JobID}}">历史</a>
+            </td>
         </tr>
     {{end}}
     </tbody>
@@ -48,7 +51,7 @@
 <script src="static/jquery.js"></script>
 <script>
     $(function () {
-        $("a.opt").click(function () {
+        $("a.trigger").click(function () {
             if (!confirm("确定立即触发执行这个任务吗？")) {
                 return false;
             }

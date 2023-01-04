@@ -4,30 +4,38 @@ import (
 	"embed"
 	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"github.com/robfig/cron/v3"
+	_ "github.com/snail007/gmc"
 	gcore "github.com/snail007/gmc/core"
+	gtemplate "github.com/snail007/gmc/http/template"
 	gctx "github.com/snail007/gmc/module/ctx"
 	gerror "github.com/snail007/gmc/module/error"
 	glog "github.com/snail007/gmc/module/log"
 	gcast "github.com/snail007/gmc/util/cast"
 	gfile "github.com/snail007/gmc/util/file"
+	glist "github.com/snail007/gmc/util/list"
 	gmap "github.com/snail007/gmc/util/map"
-	gonce "github.com/snail007/gmc/util/sync/once"
-	"html/template"
 	"mime"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
+const (
+	maxMetricsDataLen = 100
+	templateExt       = ".gohtml"
+)
+
 var (
 	defaultCrontabManager = NewCrontabManager().Start()
-	//go:embed index.gohtml
-	indexTpl string
+	//go:embed template/*.gohtml
+	templates embed.FS
 
 	//go:embed static/*
 	static embed.FS
@@ -67,14 +75,35 @@ func HandlerFunc() http.HandlerFunc {
 }
 
 type Job struct {
-	CronExp      string
-	Description  string
-	Executor     func()
-	Mutex        bool
-	triggerAt    time.Time
-	entryID      cron.EntryID
-	runningCount *int32
-	triggerCount *uint64
+	CronExp     string
+	Description string
+	Executor    func()
+	Mutex       bool
+	//MaxMetricsDataLen, value 0 means 100 will be used.
+	MaxMetricsDataLen int
+
+	//private
+	triggerAt time.Time
+	entryID   cron.EntryID
+	// need init
+	runningCount   *int32
+	triggerCount   *uint64
+	metricsRunData *glist.List
+}
+
+type MetricsRunDataItem struct {
+	StartAt time.Time `json:"start_at"`
+	EndAt   time.Time `json:"end_at"`
+	Skipped bool      `json:"skipped"`
+}
+
+func (s *Job) MetricsRunData() (d []MetricsRunDataItem) {
+	s.metricsRunData.RangeFast(func(k int, v interface{}) bool {
+		value := v.(MetricsRunDataItem)
+		d = append(d, value)
+		return true
+	})
+	return d
 }
 
 type JobItem struct {
@@ -87,13 +116,14 @@ type JobItem struct {
 	RunningCount int64  `json:"running_count"`
 	Mutex        bool   `json:"mutex"`
 	TriggerCount uint64 `json:"trigger_count"`
+	RawJob       *Job   `json:"-"`
 }
 
 type CrontabManager struct {
 	c             *cron.Cron
 	jobs          *gmap.Map
 	l             sync.Mutex
-	tpl           *template.Template
+	tpl           *gtemplate.Template
 	handlerFilter func(ctx gcore.Ctx) error
 	initTime      time.Time
 }
@@ -101,6 +131,8 @@ type CrontabManager struct {
 func (s *CrontabManager) initJob(job *Job) {
 	job.runningCount = new(int32)
 	job.triggerCount = new(uint64)
+	job.metricsRunData = glist.New()
+	s.mutexFunc(job)
 }
 
 func (s *CrontabManager) HandlerFilter() func(ctx gcore.Ctx) error {
@@ -111,17 +143,48 @@ func (s *CrontabManager) SetHandlerFilter(handlerFilter func(ctx gcore.Ctx) erro
 	s.handlerFilter = handlerFilter
 }
 
+func (s *CrontabManager) metricsStart(runCtx *gmap.Map, job *Job) {
+	atomic.AddInt32(job.runningCount, 1)
+	atomic.AddUint64(job.triggerCount, 1)
+	runCtx.Store("start_at", time.Now())
+}
+
+func (s *CrontabManager) metricsEnd(runCtx *gmap.Map, job *Job) {
+	atomic.AddInt32(job.runningCount, -1)
+	startAt, _ := runCtx.Load("start_at")
+	_, ok := runCtx.Load("skipped")
+	job.metricsRunData.Add(
+		MetricsRunDataItem{
+			StartAt: startAt.(time.Time),
+			EndAt:   time.Now(),
+			Skipped: ok,
+		})
+	if job.MaxMetricsDataLen <= 0 {
+		job.MaxMetricsDataLen=maxMetricsDataLen
+	}
+	if job.metricsRunData.Len() > job.MaxMetricsDataLen {
+		job.metricsRunData.Shift()
+	}
+}
+
+func (s *CrontabManager) metricsMutex(runCtx *gmap.Map, job *Job) {
+	runCtx.Store("skipped", true)
+}
+
 func (s *CrontabManager) mutexFunc(job *Job) {
 	f := job.Executor
-	var f0 func()
+	var f0 func(runCtx *gmap.Map)
 	if !job.Mutex {
-		f0 = f
+		f0 = func(runCtx *gmap.Map) {
+			f()
+		}
 	} else {
 		var lock = new(int32)
-		f0 = func() {
+		f0 = func(runCtx *gmap.Map) {
 			if !atomic.CompareAndSwapInt32(lock, 0, 1) {
 				//pre task is running, skip this round.
 				//fmt.Println("skipped")
+				s.metricsMutex(runCtx, job)
 				return
 			}
 			defer func() {
@@ -131,12 +194,12 @@ func (s *CrontabManager) mutexFunc(job *Job) {
 		}
 	}
 	job.Executor = func() {
+		runCtx := gmap.New()
 		defer func() {
-			atomic.AddInt32(job.runningCount, -1)
+			s.metricsEnd(runCtx, job)
 		}()
-		atomic.AddInt32(job.runningCount, 1)
-		atomic.AddUint64(job.triggerCount, 1)
-		f0()
+		s.metricsStart(runCtx, job)
+		f0(runCtx)
 	}
 }
 
@@ -144,7 +207,6 @@ func (s *CrontabManager) AddJob(job Job) (jobID int, err error) {
 	s.l.Lock()
 	defer s.l.Unlock()
 	s.initJob(&job)
-	s.mutexFunc(&job)
 	id, err := s.c.AddFunc(job.CronExp, job.Executor)
 	if err != nil {
 		return
@@ -213,6 +275,7 @@ func (s *CrontabManager) job2item(job *Job) *JobItem {
 		RunningCount: int64(atomic.LoadInt32(job.runningCount)),
 		TriggerCount: atomic.LoadUint64(job.triggerCount),
 		Mutex:        job.Mutex,
+		RawJob:       job,
 	}
 }
 
@@ -255,8 +318,8 @@ func (s *CrontabManager) HandlerFunc() http.HandlerFunc {
 			data, err = s.handleJobListJson(ctx)
 		case "triggerjob":
 			data, err = s.handleTriggerJob(ctx)
-		case "demolist":
-			data, err = s.handleJobList(ctx)
+		case "history":
+			data, err = s.handleHistory(ctx)
 		default:
 			if strings.HasSuffix(filepath.Dir(r.URL.Path), "/static") {
 				b, e := static.ReadFile("static/" + v)
@@ -286,34 +349,112 @@ func (s *CrontabManager) HandlerFunc() http.HandlerFunc {
 		}
 	}
 }
-
-func (s *CrontabManager) handleJobList(ctx gcore.Ctx) (_ interface{}, err error) {
-	gonce.OnceDo("crontab-foo", func() {
-		s.tpl = template.New("crontab")
-		s.tpl.Funcs(map[string]interface{}{
-			"date": func(args ...interface{}) (interface{}, error) {
-				t := gcast.ToString(args[1])
-				if t == "0" {
-					return args[2], nil
-				}
-				return time.Unix(gcast.ToInt64(t), 0).Format(args[0].(string)), nil
-			},
-			"tojs": func(str string) string {
-				s, _ := base64.StdEncoding.DecodeString(str)
-				return string(s)
-			},
-		})
-		_, err = s.tpl.Parse(indexTpl)
-	})
+func (s *CrontabManager) init() {
+	l := cron.PrintfLogger(DefaultLogger)
+	//l := cron.VerbosePrintfLogger(DefaultLogger)
+	c := cron.New(
+		// support of seconds field, optional
+		cron.WithParser(cron.NewParser(
+			cron.SecondOptional|cron.Minute|cron.Hour|cron.Dom|cron.Month|cron.Dow|cron.Descriptor,
+		)),
+		cron.WithLogger(l),
+		// panic recovery and configure the panic logger, and skip if still running.
+		cron.WithChain(cron.Recover(l)),
+	)
+	s.c = c
+	dir, _ := templates.ReadDir("template")
+	bindData := map[string]string{}
+	for _, v := range dir {
+		if !v.IsDir() && filepath.Ext(v.Name()) == templateExt {
+			b, _ := templates.ReadFile("template/" + v.Name())
+			bindData[gfile.FileName(v.Name())] = base64.StdEncoding.EncodeToString(b)
+		}
+	}
+	gtemplate.SetBinData(bindData)
+	var err error
+	s.tpl, err = gtemplate.NewTemplate(gctx.NewCtx(), "")
 	if err != nil {
+		glog.Warnf("new template fail, error: %s", err)
 		return
 	}
+	s.tpl.Extension(".gohtml")
+	s.tpl.Funcs(map[string]interface{}{
+		"date": func(args ...interface{}) (interface{}, error) {
+			t := gcast.ToString(args[1])
+			if t == "0" {
+				return args[2], nil
+			}
+			return time.Unix(gcast.ToInt64(t), 0).Format(args[0].(string)), nil
+		},
+		"tojs": func(str string) string {
+			s, _ := base64.StdEncoding.DecodeString(str)
+			return string(s)
+		},
+	})
+	err = s.tpl.Parse()
+	if err != nil {
+		glog.Warnf("init crontab manager fail, error: %s", err)
+		return
+	}
+
+}
+func (s *CrontabManager) handleHistory(ctx gcore.Ctx) (b interface{}, err error) {
+	jobID := gcast.ToInt(ctx.GET("jobid"))
+	if jobID == 0 {
+		err = fmt.Errorf("job id error")
+		return
+	}
+	job := s.GetJob(jobID)
+	if job == nil {
+		err = fmt.Errorf("job %d not exists", jobID)
+		return
+	}
+	tplData := map[string]interface{}{
+		"job": job,
+	}
+	runData := job.RawJob.MetricsRunData()
+	historyMap := map[int64]map[string]interface{}{}
+	sortBy := []int64{}
+	for _, v := range runData {
+		key := v.StartAt.UnixNano()
+		sortBy = append(sortBy, key)
+		historyMap[key] = map[string]interface{}{
+			"start_at": v.StartAt.UnixMilli(),
+			"dur_ms":   v.EndAt.Sub(v.StartAt).Milliseconds(),
+			"skipped":  v.Skipped,
+		}
+	}
+	sort.Slice(sortBy, func(i, j int) bool {
+		return sortBy[i] > sortBy[j]
+	})
+	history := []map[string]interface{}{}
+	for _, k := range sortBy {
+		history = append(history, historyMap[k])
+	}
+	h, _ := json.Marshal(history)
+	j, _ := json.Marshal(job)
+	tplData["data"] = string(h)
+	tplData["jobJson"] = string(j)
+	tplData["job"] = job.RawJob
+	d, err := s.tpl.Execute("history", tplData)
+	if err != nil {
+		return nil, err
+	}
+	ctx.Write(d)
+	return
+}
+
+func (s *CrontabManager) handleJobList(ctx gcore.Ctx) (b interface{}, err error) {
 	tplData := map[string]interface{}{
 		"rows":          s.JobList(),
 		"init_time":     s.initTime.In(time.Local).Format("2006-01-02 15:04:05"),
 		"init_time_dur": gcast.ToString(time.Now().Sub(s.initTime)),
 	}
-	err = s.tpl.Execute(ctx.Response(), tplData)
+	d, err := s.tpl.Execute("index", tplData)
+	if err != nil {
+		return nil, err
+	}
+	ctx.Write(d)
 	return
 }
 
@@ -343,22 +484,11 @@ func (s *CrontabManager) handleTriggerJob(ctx gcore.Ctx) (data interface{}, err 
 }
 
 func NewCrontabManager() *CrontabManager {
-	l := cron.PrintfLogger(DefaultLogger)
-	//l := cron.VerbosePrintfLogger(DefaultLogger)
-	c := cron.New(
-		// support of seconds field, optional
-		cron.WithParser(cron.NewParser(
-			cron.SecondOptional|cron.Minute|cron.Hour|cron.Dom|cron.Month|cron.Dow|cron.Descriptor,
-		)),
-		cron.WithLogger(l),
-		// panic recovery and configure the panic logger, and skip if still running.
-		cron.WithChain(cron.Recover(l)),
-	)
-
-	return &CrontabManager{
-		c:    c,
+	m := &CrontabManager{
 		jobs: gmap.New(),
 	}
+	m.init()
+	return m
 }
 
 var (

@@ -14,3 +14,6 @@ require (
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
 	gopkg.in/ini.v1 v1.64.0 // indirect
 )
+replace (
+	github.com/snail007/gmc => /Users/user/go/src/github.com/snail007/gmc
+)

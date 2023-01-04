@@ -247,7 +247,6 @@ body {
 a.opt, a.opt:visited {
     color: #ffc679;
 }
-
 .id {
     width: 20px;
 }
@@ -269,7 +268,7 @@ a.opt, a.opt:visited {
 }
 
 .options {
-    width: 50px;
+    width: 80px;
 }
 
 .count {

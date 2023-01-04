@@ -19,7 +19,7 @@ func main() {
 			time.Sleep(time.Second * 3)
 			fmt.Println(k, "end")
 		},
-		Mutex: false,
+		Mutex: true,
 	})
 	http.HandleFunc("/crontab/",gocron.HandlerFunc())
 	http.ListenAndServe(":8800",nil)
