@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/snail007/gmc v0.0.0-20230119024211-0470d5541973
+	github.com/snail007/gmc v0.0.0-20230206092809-85573e955736
 	github.com/stretchr/testify v1.8.1
 )
 
@@ -17,7 +17,7 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
-	github.com/mattn/go-sqlite3 v1.14.10 // indirect
+	github.com/mattn/go-sqlite3 v1.14.16 // indirect
 	github.com/mitchellh/mapstructure v1.4.2 // indirect
 	github.com/pelletier/go-toml v1.9.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

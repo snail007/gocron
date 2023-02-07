@@ -370,7 +370,7 @@ func (s *CrontabManager) init() {
 			bindData[gfile.FileName(v.Name())] = base64.StdEncoding.EncodeToString(b)
 		}
 	}
-	gtemplate.SetBinData(bindData)
+	gtemplate.SetBinBase64(bindData)
 	var err error
 	s.tpl, err = gtemplate.NewTemplate(gctx.NewCtx(), "")
 	if err != nil {
