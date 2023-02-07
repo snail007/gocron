@@ -379,7 +379,7 @@ func (s *CrontabManager) init() {
 	}
 	s.tpl.Extension(".gohtml")
 	s.tpl.Funcs(map[string]interface{}{
-		"date": func(args ...interface{}) (interface{}, error) {
+		"date1": func(args ...interface{}) (interface{}, error) {
 			t := gcast.ToString(args[1])
 			if t == "0" {
 				return args[2], nil
