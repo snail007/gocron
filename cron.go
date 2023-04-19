@@ -291,8 +291,8 @@ func (s *CrontabManager) TriggerJob(jobID int) (err error) {
 	}
 	job.(*Job).triggerAt = time.Now()
 	go func() {
-		defer gerror.Recover(func(e gcore.Error) {
-			err = fmt.Errorf("%s", e.ErrorStack())
+		defer gerror.Recover(func(e interface{}) {
+			err = fmt.Errorf("%s", gerror.Wrap(e).ErrorStack())
 		})
 		s.c.Entry(cron.EntryID(jobID)).WrappedJob.Run()
 	}()
