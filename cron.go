@@ -370,13 +370,14 @@ func (s *CrontabManager) init() {
 			bindData[gfile.FileName(v.Name())] = base64.StdEncoding.EncodeToString(b)
 		}
 	}
-	gtemplate.SetBinBase64(bindData)
 	var err error
 	s.tpl, err = gtemplate.NewTemplate(gctx.NewCtx(), "")
 	if err != nil {
 		glog.Warnf("new template fail, error: %s", err)
 		return
 	}
+	s.tpl.DisableLoadDefaultBinData()
+	s.tpl.SetBinBase64(bindData)
 	s.tpl.Extension(".gohtml")
 	s.tpl.Funcs(map[string]interface{}{
 		"date1": func(args ...interface{}) (interface{}, error) {
