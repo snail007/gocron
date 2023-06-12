@@ -515,7 +515,7 @@ func NewLogger() *logger {
 }
 
 func (l *logger) Printf(fmtstr string, msg ...interface{}) {
-	l.l.Write(fmt.Sprintf(fmtstr, msg...))
+	l.l.Write(fmt.Sprintf(fmtstr, msg...), gcore.LogLeveInfo)
 }
 
 func httpData(code int, data, msg interface{}) interface{} {
