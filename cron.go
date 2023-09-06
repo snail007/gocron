@@ -379,6 +379,7 @@ func (s *CrontabManager) init() {
 	s.tpl.DisableLoadDefaultBinData()
 	s.tpl.SetBinBase64(bindData)
 	s.tpl.Extension(".gohtml")
+	s.tpl.DdisableLogging()
 	s.tpl.Funcs(map[string]interface{}{
 		"date1": func(args ...interface{}) (interface{}, error) {
 			t := gcast.ToString(args[1])
